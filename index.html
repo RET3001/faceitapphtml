@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Lobbies</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 16px;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+        .lobby {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .lobby-info {
+            flex: 1;
+        }
+        .lobby-name {
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        .lobby-players {
+            color: #666;
+            font-size: 14px;
+        }
+        .join-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .join-btn:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        .create-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 12px;
+            width: 100%;
+            font-size: 16px;
+            font-weight: bold;
+            margin-top: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎮 Игровые лобби</h1>
+    <div id="lobbies-container">Загрузка...</div>
+    <button id="create-lobby-btn" class="create-btn">➕ Создать лобби</button>
+
+    <script>
+        // Инициализация Telegram WebApp
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        // Данные пользователя из Telegram
+        const user = {
+            id: tg.initDataUnsafe.user?.id || 'user_' + Math.random().toString(36).substr(2, 9),
+            first_name: tg.initDataUnsafe.user?.first_name || 'Игрок',
+            username: tg.initDataUnsafe.user?.username || 'player'
+        };
+
+        // DOM элементы
+        const lobbiesContainer = document.getElementById('lobbies-container');
+        const createLobbyBtn = document.getElementById('create-lobby-btn');
+
+        // API для работы с лобби
+        const LobbyAPI = {
+            async getLobbies() {
+                const response = await fetch('https://ВАШ_СЕРВЕР/api/lobbies');
+                return await response.json();
+            },
+
+            async createLobby() {
+                const response = await fetch('https://ВАШ_СЕРВЕР/api/lobbies/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ user })
+                });
+                return await response.json();
+            },
+
+            async joinLobby(lobbyId) {
+                const response = await fetch('https://ВАШ_СЕРВЕР/api/lobbies/join', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        lobby_id: lobbyId,
+                        user
+                    })
+                });
+                return await response.json();
+            }
+        };
+
+        // Отображение лобби
+        async function renderLobbies() {
+            try {
+                const lobbies = await LobbyAPI.getLobbies();
+
+                if (lobbies.length === 0) {
+                    lobbiesContainer.innerHTML = '<p>Нет доступных лобби</p>';
+                    return;
+                }
+
+                lobbiesContainer.innerHTML = '';
+
+                lobbies.forEach(lobby => {
+                    const lobbyEl = document.createElement('div');
+                    lobbyEl.className = 'lobby';
+
+                    const lobbyInfo = document.createElement('div');
+                    lobbyInfo.className = 'lobby-info';
+
+                    const nameEl = document.createElement('div');
+                    nameEl.className = 'lobby-name';
+                    nameEl.textContent = lobby.name;
+
+                    const playersEl = document.createElement('div');
+                    playersEl.className = 'lobby-players';
+                    playersEl.textContent = `Игроков: ${lobby.players.length}/${lobby.max_players}`;
+
+                    const joinBtn = document.createElement('button');
+                    joinBtn.className = 'join-btn';
+                    joinBtn.textContent = '+';
+
+                    // Проверка можно ли присоединиться
+                    const isUserInLobby = lobby.players.some(p => p.user_id === user.id);
+                    const isLobbyFull = lobby.players.length >= lobby.max_players;
+
+                    joinBtn.disabled = isUserInLobby || isLobbyFull;
+
+                    if (!joinBtn.disabled) {
+                        joinBtn.addEventListener('click', async () => {
+                            const result = await LobbyAPI.joinLobby(lobby.id);
+                            if (result.success) {
+                                tg.showAlert(`Вы присоединились к ${lobby.name}`);
+                                await renderLobbies();
+                            } else {
+                                tg.showAlert(result.error);
+                            }
+                        });
+                    }
+
+                    lobbyInfo.appendChild(nameEl);
+                    lobbyInfo.appendChild(playersEl);
+
+                    lobbyEl.appendChild(lobbyInfo);
+                    lobbyEl.appendChild(joinBtn);
+
+                    lobbiesContainer.appendChild(lobbyEl);
+                });
+            } catch (error) {
+                console.error('Ошибка:', error);
+                lobbiesContainer.innerHTML = '<p>Ошибка загрузки лобби</p>';
+            }
+        }
+
+        // Создание лобби
+        createLobbyBtn.addEventListener('click', async () => {
+            const result = await LobbyAPI.createLobby();
+            if (result.success) {
+                tg.showAlert(`Лобби "${result.lobby.name}" создано!`);
+                await renderLobbies();
+            } else {
+                tg.showAlert(result.error || 'Ошибка при создании лобби');
+            }
+        });
+
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', renderLobbies);
+    </script>
+</body>
+</html>
